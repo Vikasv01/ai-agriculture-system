@@ -1,6 +1,10 @@
 import requests
+import os
+from dotenv import load_dotenv
 
-API_KEY = "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"  
+load_dotenv()
+
+API_KEY = os.getenv("GENAI_API_KEY")  
 
 
 def generate_explanation(data):
