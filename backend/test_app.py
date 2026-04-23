@@ -1,48 +1,104 @@
 from fastapi import FastAPI
-from ai_models.plant_health import plant_health
-from ai_models.decision_engine import decide_irrigation
+import asyncio
+
+from backend.config import SENSORS
 from simulation.sensor_simulator import get_sensor_data
 from backend.weather_service import get_weather
+from ai_models.plant_health import plant_health
 from genai.explanation_engine import generate_explanation
-from ai_models.prediction_model import predict_moisture
+from ai_models.rl_agent import get_actions  
+from genai.rag_engine import refine_decision
 
 app = FastAPI()
 
+
 @app.get("/status")
-def status():
+async def status():
 
-    weather = get_weather(12.97, 77.59)
-    sensor = get_sensor_data(weather, irrigation=0) 
+    states = []
+    zone_data = []
 
-    predicted_moisture = predict_moisture(
-    sensor["soil_moisture"],
-    weather["temperature"],
-    weather["humidity"]
-)
-     # store it in sensor
-    sensor["predicted_moisture"] = predicted_moisture
+    # 🔹 STEP 1 — Collect data from all sensors
+    for sensor in SENSORS:
 
-    # STEP 1: define health FIRST
-    health = plant_health(
-        sensor["soil_moisture"],
-        sensor["pH"],
-        sensor["EC"],
-        sensor["N"],
-        sensor["P"],
-        sensor["K"]
-    )
+        weather = get_weather(sensor["lat"], sensor["lon"])
 
-    # STEP 2: then use it
-    irrigation = decide_irrigation(sensor, weather, health)
+        # initial sensor reading (no irrigation yet)
+        data = get_sensor_data(weather, irrigation=0)
+        
+        # 🔥 Build RL state
+        state = [
+            data["soil_moisture"],
+            weather["temperature"],
+            weather["humidity"],
+            data["N"],
+            data["P"],
+            data["K"]
+        ]
 
-    explanation = generate_explanation(sensor, weather, health, irrigation)
+        states.append(state)
 
-    # STEP 3: return
+        zone_data.append({
+            "id": sensor["id"],
+            "sensor": data,
+            "weather": weather
+        })
+
+    # 🔥 STEP 2 — RL decision (batch)
+    actions = get_actions(states)
+
+    print("RL OUTPUT:", actions)  # ✅ debug log
+
+    results = []
+
+    for i, zone in enumerate(zone_data):
+
+        rl_irrigation = float(actions[i])
+
+    # ✅ FIRST: simulate irrigation
+        updated_data = get_sensor_data(zone["weather"], rl_irrigation)
+
+    # ✅ SECOND: compute plant health
+        health = plant_health(
+            updated_data["soil_moisture"],
+            updated_data["pH"],
+            updated_data["EC"],
+            updated_data["N"],
+            updated_data["P"],
+            updated_data["K"]
+        )
+
+    # ✅ THIRD: apply RAG
+        try:
+           irrigation, context = refine_decision(
+            updated_data,
+            zone["weather"],
+            health,
+            rl_irrigation
+        )
+        except Exception as e:
+            print("RAG FAILED:", e)
+            irrigation = rl_irrigation
+            context = []
+
+    # ✅ explanation
+        explanation = generate_explanation(
+            updated_data,
+            zone["weather"],
+            health,
+            irrigation,
+            context
+        )
+
+        results.append({
+            "id": zone["id"],
+            "sensor": updated_data,
+            "weather": zone["weather"],
+            "plant_health": health,
+            "irrigation": irrigation,
+            "explanation": explanation,
+            "rag_context": context
+        })
     return {
-        "sensor": sensor,
-        "weather": weather,
-        "plant_health": health,
-        "predicted_moisture": sensor.get("predicted_moisture"), 
-        "irrigation": irrigation,
-        "explanation": explanation 
+        "zones": results
     }

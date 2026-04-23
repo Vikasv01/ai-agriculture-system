@@ -4,25 +4,32 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_KEY = os.getenv("GENAI_API_KEY")  
+API_KEY = os.getenv("GENAI_API_KEY")
 
 
-def generate_explanation(data):
+def generate_explanation(sensor, weather, plant_health, irrigation, context):
+
     prompt = f"""
-You are an AI agriculture assistant.
+You are an AI agriculture expert.
 
-Given the following data:
-Soil Moisture: {data['soil_moisture']}
-Temperature: {data['temperature']}
-Water Applied: {data['water']}
-Plant Health: {data['plant_health']}
-Nutrient Status: {data['nutrient_status']}
+Analyze the situation and explain the irrigation decision.
 
-Explain the situation and suggest actions in simple human language.
+DATA:
+- Soil Moisture: {sensor['soil_moisture']}
+- Temperature: {weather['temperature']}
+- Humidity: {weather['humidity']}
+- Plant Health: {plant_health}
+- Irrigation: {irrigation}
+
+KNOWLEDGE:
+{context}
+
+Explain clearly WHY this irrigation is recommended.
+Keep it simple and human-friendly.
 """
 
     try:
-        print("Calling GenAI...")
+        print("🔥 Calling GenAI...")
 
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -36,12 +43,10 @@ Explain the situation and suggest actions in simple human language.
                 "model": "openai/gpt-3.5-turbo",
                 "messages": [
                     {"role": "user", "content": prompt}
-                ]
+                ],
+                "temperature": 0.3
             }
         )
-
-        print("Status Code:", response.status_code)
-        print("Response:", response.text)
 
         result = response.json()
 
@@ -50,44 +55,29 @@ Explain the situation and suggest actions in simple human language.
 
         else:
             print("API ERROR:", result)
-
-            return (
-                f"Soil moisture is {data['soil_moisture']}%. "
-                f"Plant is {data['plant_health']}. "
-                f"Basic system fallback explanation."
-            )
+            raise Exception("Invalid response")
 
     except Exception as e:
-        print("EXCEPTION:", e)
+        print("⚠️ GenAI failed:", e)
 
-        return (
-            f"System fallback: Soil {data['soil_moisture']}%, "
-            f"Plant {data['plant_health']}."
-        )
-    
-def generate_explanation(sensor, weather, plant_health, irrigation):
+        # 🔄 FALLBACK (rule-based)
+        reasons = []
 
-    reasons = []
+        if sensor["soil_moisture"] < 0.3:
+            reasons.append("low soil moisture")
 
-    # 💧 moisture
-    if sensor["soil_moisture"] < 0.3:
-        reasons.append("low soil moisture")
+        if weather["temperature"] > 30:
+            reasons.append("high temperature")
 
-    # 🌡️ temperature
-    if weather["temperature"] > 30:
-        reasons.append("high temperature")
+        if plant_health < 60:
+            reasons.append("poor plant health")
 
-    # 🌱 plant health
-    if plant_health < 60:
-        reasons.append("poor plant health")
+        if weather["rain"] > 0:
+            reasons.append("rain detected")
 
-    # 🌧️ rain
-    if weather["rain"] > 0:
-        reasons.append("rain detected (reduced irrigation)")
+        if not reasons:
+            return "Conditions are stable. Moderate irrigation applied."
 
-    if not reasons:
-        return "Conditions are stable. Moderate irrigation applied."
+        explanation = " + ".join(reasons)
 
-    explanation = " + ".join(reasons)
-
-    return f"{explanation} → irrigation adjusted to {irrigation}"
+        return f"{explanation} → irrigation adjusted to {round(irrigation, 2)}"

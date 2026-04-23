@@ -1,8 +1,21 @@
+# Python cache
 __pycache__/
 *.pyc
+
+# Environment variables (API keys)
 .env
+
+# Virtual environment
 venv/
-.idea/
+
+# IDE files
 .vscode/
+.idea/
+
+# Logs
 *.log
-.env
+
+# ML / RL model files
+*.zip
+*.pt
+*.pth

@@ -1,14 +1,20 @@
-def get_action(state):
+import torch
+import numpy as np
+import os
+from stable_baselines3 import PPO
 
-    irrigation = 0.5
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "irrigation_agent")
 
-    if state["soil_moisture"] < 0.3:
-        irrigation += 0.3
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    if state["pH"] < 6 or state["pH"] > 8:
-        irrigation -= 0.1
+model = PPO.load(MODEL_PATH, device="cpu")
 
-    if state["EC"] > 3:
-        irrigation -= 0.2
 
-    return max(0, min(irrigation, 1))
+def get_actions(states):
+
+    states = np.array(states, dtype=np.float32)
+
+    # ⚡ batch predict
+    actions, _ = model.predict(states)
+
+    return [float(a) for a in actions]
